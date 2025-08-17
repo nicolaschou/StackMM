@@ -1,4 +1,5 @@
 # StackMM Photoshop Script
+**Latest Version: v1.1 (08/17/2025)**
 
 ## What the Script Does
 - Imports images as layers into a single Photoshop document.  
@@ -32,5 +33,9 @@
 - Average images ***must contain “average”*** in their file name (case insensitive)
 - Files that ***do not contain “mask”, “pmap”, or “average”*** in their name are treated as MMs
 - The two acquisitions ***must be aligned manually*** after the script is run (layers are already linked by acquisition)
+
+## Version History
+- **v1.1** (8/17/2025)  
+    - Added ability to select files in multiple batches for each acquisition.
 
 

@@ -15,8 +15,10 @@ app.preferences.rulerUnits = Units.PIXELS;
 
 // Object to track the properties of an image in the stack
 function ImageObject(file, isFirstAcquisition) {
-    this.file = file;
-    this.layer = null
+    this.file = file; // stores the File object for this image
+    this.layer = null // stores the Photoshop layer object for this image
+
+    // Booleans that indicate the type of image
     this.isFirstAcquisition = isFirstAcquisition;
     this.ispMap = (file.name.toLowerCase().indexOf("pmap") !== -1);
     this.isMask = (file.name.toLowerCase().indexOf("mask") !== -1);
@@ -24,45 +26,58 @@ function ImageObject(file, isFirstAcquisition) {
     this.isMM = !this.ispMap && !this.isMask && !this.isAverage;
 }
 
-// Create an empty array to hold the selected files
+// Create an empty array to hold the selected files as File objects
 var images = [];
 
-// Prompt user to select images for the first acquisition
-while (images.length == 0) {
-    var files = File.openDialog("Select files from the FIRST acquisition",
-        "Images:*.jpg;*.png;*.tif;*.psd", true);
+// Function that collects files for a given acquisition
+function collectImages(isFirst) {
+    // Create a file opening window
+    var acquisitionLabel = isFirst ? "FIRST" : "SECOND";
+    var promptText = "Select images from the " + acquisitionLabel + 
+                     " acquisition";
+    var dlg = new Window("dialog", promptText)
+    dlg.alignChildren = ["fill", "top"];
 
-    // If user cancels, exit the script
-    if (files == null) {
-        throw new Error("No files selected");
-    } else {
+    // File list
+    var fileListBox = dlg.add("listbox", [0, 0, 400, 200], [], {
+        multiselect: false
+    });
+
+    // Row of buttons
+    var buttonGroup = dlg.add("group");
+    buttonGroup.orientation = "row";
+
+    // Add files button
+    var addButton = buttonGroup.add("button", undefined, "Add Files");
+    // When clicked, this button adds prompts the user to open files
+    addButton.onClick = function () {
+        var files = File.openDialog(promptText, "Images:*.jpg;*.png;*.tif", 
+                                    true);
+
+        // Store imageObjects in the images array, and update the fileListBox
+        if (files != null) {
         for (var i = 0; i < files.length; i++) {
-            var imageObject = new ImageObject(files[i], true)
+            var imageObject = new ImageObject(files[i], isFirst);
             images.push(imageObject);
+            fileListBox.add("item", files[i].name);
         }
-    }
+    } 
+    };
+    
+    // Done button
+    var doneButton = buttonGroup.add("button", undefined, "Done", 
+                                     { name: "ok" });
+    doneButton.onClick = function () {
+        dlg.close();
+    };
+
+    dlg.show();
 }
 
-var numFirstAcquisition = images.length
+collectImages(true);
+collectImages(false);
 
-// Prompt user to select images for the second acquisition
-while (images.length == numFirstAcquisition) {
-    var files = File.openDialog("Select files from the SECOND acquisition",
-        "Images:*.jpg;*.png;*.tif;*.psd", true);
-
-    // If user cancels, exit the script
-    if (files == null) {
-        throw new Error("No files selected");
-    } else {
-        for (var i = 0; i < files.length; i++) {
-            var imageObject = new ImageObject(files[i], false)
-            images.push(imageObject);
-        }
-    }
-}
-
-// Re-order images as follows: averageImages, pMaps, MMs, masks (with the 
-// first acquisition above first). **THIS ORDER IS INVERTED IN PHOTOSHOP**
+// Separate images for reordering
 var masks = [];
 var MMs = [];
 var pMaps = [];
@@ -88,31 +103,30 @@ function acquisitionSort(a, b) {
     return a.isFirstAcquisition ? -1 : 1;
 }
 
-// Sort each group by acquisition
 masks.sort(acquisitionSort);
 MMs.sort(acquisitionSort);
 pMaps.sort(acquisitionSort);
 averages.sort(acquisitionSort);
 
-// Concatenate arrays in the desired order and replace the images array
+// Re-order images as follows: average images, pMaps, MMs, masks (with the 
+// first acquisition above first). **THIS ORDER IS INVERTED IN PHOTOSHOP**
 images = averages.concat(pMaps, MMs, masks);
 
 // Create a new document that matches the dimensions of the images
 var doc = app.open(images[0].file);
-doc.activeLayer.name = images[0].file.name; // rename layer
-images[0].layer = doc.activeLayer; // Store layer in ImageObject
+doc.activeLayer.name = images[0].file.name;
+images[0].layer = doc.activeLayer;
 
-// Change color mode to RGB if it's not already
+// Change color mode to RGB
 if (doc.mode != DocumentMode.RGB) {
     doc.changeMode(ChangeMode.RGB);
 }
 
-// Change bit depth to 8 if it's not already
+// Change bit depth to 8
 if (doc.bitsPerChannel != BitsPerChannelType.EIGHT) {
     doc.bitsPerChannel = BitsPerChannelType.EIGHT;
 }
 
-// Keep track of the layer containing the first MM
 var bottomMM = null
 
 // Loop over files and add each as a layer
@@ -174,6 +188,7 @@ function selectBlackColorRange() {
     executeAction(charIDToTypeID("ClrR"), desc, DialogModes.NO);
 }
 
+// Function that deletes all black pixels from a given layer
 function deleteBlackPixelsFromLayer(layer) {
     doc.activeLayer = layer;
 
@@ -202,5 +217,3 @@ for (var i = 0; i < masks.length; i++) {
 
 // Flip canvas
 doc.flipCanvas(Direction.VERTICAL);
-
-
