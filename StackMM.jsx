@@ -1,67 +1,109 @@
 /**
  * ========================================
  * File:        StackMM.jsx
- * Description: This script automatically sorts and loads Igor images from
- *              Igor into a Photoshop document
+ * Description: Script to load and organize Igor images generated with the 
+ *              Gilbert Group Macros in Photoshop, sorting by acquisition and 
+ *              type with automated mask cleanup.
  * Author:      Nico Chou
  * ========================================
  */
 
+
 // Ensure Photoshop is the active app
 #target photoshop
 
-// Set units to pixels
-app.preferences.rulerUnits = Units.PIXELS;
 
-// Object to track the properties of an image in the stack
+/**
+ * Main entry point. Collects images, reorders them, configures document, adds 
+ * layers, groups pMaps, links acquisitions, edits masks, and flips canvas.
+ */
+(function main() {
+    // Set units to pixels
+    app.preferences.rulerUnits = Units.PIXELS;
+
+    var first = collectImages(true);
+    var second = collectImages(false);
+    var images = first.concat(second);
+    var parts = reorderImages(images);
+    images = parts.ordered;
+    var masks = parts.masks;
+    var MMs = parts.MMs;
+    var pMaps = parts.pMaps;
+    var averages = parts.averages;
+    var doc = configureDoc(images);
+    addLayers(doc, images);
+    groupPMaps(doc, images, pMaps);
+    linkAcquisitions(images);
+    editMasks(doc, masks);
+
+    // Flip canvas
+    doc.flipCanvas(Direction.VERTICAL);
+})();
+
+
+/**
+ * Represents an image in the Photoshop stack.
+ * 
+ * @constructor
+ * @param {File} file - The file object for this image.
+ * @param {boolean} isFirstAcquisition - True if the image is from the first 
+ *                                       acquisition.
+ */
 function ImageObject(file, isFirstAcquisition) {
     this.file = file; // stores the File object for this image
-    this.layer = null // stores the Photoshop layer object for this image
+    this.layer = null; // stores the Photoshop layer object for this image
+    var name = file.name.toLowerCase();
 
     // Booleans that indicate the type of image
     this.isFirstAcquisition = isFirstAcquisition;
-    this.ispMap = (file.name.toLowerCase().indexOf("pmap") !== -1);
-    this.isMask = (file.name.toLowerCase().indexOf("mask") !== -1);
-    this.isAverage = (file.name.toLowerCase().indexOf("average") !== -1);
-    this.isMM = !this.ispMap && !this.isMask && !this.isAverage;
+    this.isPMap = (name.indexOf("pmap") !== -1);
+    this.isMask = (name.indexOf("mask") !== -1);
+    this.isAverage = (name.indexOf("average") !== -1);
+    this.isMM = !this.isPMap && !this.isMask && !this.isAverage;
 }
 
-// Create an empty array to hold the selected files as File objects
-var images = [];
 
-// Function that collects files for a given acquisition
+/**
+ * Opens a dialog to collect image files for a given acquisition.
+ * 
+ * @param {boolean} isFirst - True if collecting for the first acquisition.
+ * @returns {ImageObject[]} Array of selected images as ImageObjects.
+ */
 function collectImages(isFirst) {
     // Create a file opening window
     var acquisitionLabel = isFirst ? "FIRST" : "SECOND";
     var promptText = "Select images from the " + acquisitionLabel + 
                      " acquisition";
-    var dlg = new Window("dialog", promptText)
+    var dlg = new Window("dialog", promptText);
     dlg.alignChildren = ["fill", "top"];
 
-    // File list
+    // File list and button row
     var fileListBox = dlg.add("listbox", [0, 0, 400, 200], [], {
         multiselect: false
     });
-
-    // Row of buttons
     var buttonGroup = dlg.add("group");
     buttonGroup.orientation = "row";
 
+    // Empty array to hold the selected images as ImageObjects
+    var images = [];
+
     // Add files button
     var addButton = buttonGroup.add("button", undefined, "Add Files");
-    // When clicked, this button adds prompts the user to open files
     addButton.onClick = function () {
-        var files = File.openDialog(promptText, "Images:*.jpg;*.png;*.tif", 
-                                    true);
-
-        // Store imageObjects in the images array, and update the fileListBox
+        var files = File.openDialog(
+            promptText,
+            "Images:*.jpg;*.jpeg;*.png;*.tif;*.tiff;" +
+            "*.JPG;*.JPEG;*.PNG;*.TIF;*.TIFF",
+            true
+        );
+        // Store imageObjects and update the fileListBox
         if (files != null) {
-        for (var i = 0; i < files.length; i++) {
-            var imageObject = new ImageObject(files[i], isFirst);
-            images.push(imageObject);
-            fileListBox.add("item", files[i].name);
-        }
-    } 
+            for (var i = 0; i < files.length; i++) {
+                var imageObject = new ImageObject(files[i], isFirst);
+                images.push(imageObject);
+                fileListBox.add("item", files[i].name);
+            }
+        } 
     };
     
     // Done button
@@ -72,104 +114,170 @@ function collectImages(isFirst) {
     };
 
     dlg.show();
+    return images;
 }
 
-collectImages(true);
-collectImages(false);
 
-// Separate images for reordering
-var masks = [];
-var MMs = [];
-var pMaps = [];
-var averages = [];
-for (var i = 0; i < images.length; i++) {
-    if (images[i].isMask) {
-        masks.push(images[i])
-    } else if (images[i].ispMap) {
-        pMaps.push(images[i])
-    } else if (images[i].isAverage) {
-        averages.push(images[i])
-    } else if (images[i].isMM) {
-        MMs.push(images[i])
+/**
+ * Reorders images into categories (masks, MMs, pMaps, averages). Within each
+ * category, images are sorted by acquisition (the first before the second).
+ * 
+ * @param {ImageObject[]} images - The list of ImageObjects.
+ * @returns {{
+ *   ordered: ImageObject[],
+ *   masks: ImageObject[],
+ *   MMs: ImageObject[],
+ *   pMaps: ImageObject[],
+ *   averages: ImageObject[]
+ * }} Arrays of ImageObjects sorted by category
+ */
+function reorderImages(images) {
+    // Separate images for reordering
+    var masks = [], MMs = [], pMaps = [], averages = [];
+    for (var i = 0; i < images.length; i++) {
+        var im = images[i];
+        if (im.isMask) masks.push(im);
+        else if (im.isPMap) pMaps.push(im);
+        else if (im.isAverage) averages.push(im);
+        else if (im.isMM) MMs.push(im);
     }
-}
-
-// Sort function that puts the first acquisiton above the second
-function acquisitionSort(a, b) {
-    // Sort alphabetically if from the same acquisition
-    if (a.isFirstAcquisition === b.isFirstAcquisition) {
-        return a.file.name.localeCompare(b.file.name);
-    }
-    return a.isFirstAcquisition ? -1 : 1;
-}
-
-masks.sort(acquisitionSort);
-MMs.sort(acquisitionSort);
-pMaps.sort(acquisitionSort);
-averages.sort(acquisitionSort);
-
-// Re-order images as follows: average images, pMaps, MMs, masks (with the 
-// first acquisition above first). **THIS ORDER IS INVERTED IN PHOTOSHOP**
-images = averages.concat(pMaps, MMs, masks);
-
-// Create a new document that matches the dimensions of the images
-var doc = app.open(images[0].file);
-doc.activeLayer.name = images[0].file.name;
-images[0].layer = doc.activeLayer;
-
-// Change color mode to RGB
-if (doc.mode != DocumentMode.RGB) {
-    doc.changeMode(ChangeMode.RGB);
-}
-
-// Change bit depth to 8
-if (doc.bitsPerChannel != BitsPerChannelType.EIGHT) {
-    doc.bitsPerChannel = BitsPerChannelType.EIGHT;
-}
-
-var bottomMM = null
-
-// Loop over files and add each as a layer
-for (var i = 1; i < images.length; i++) {
-    var tempDoc = app.open(images[i].file); // Open image temporarily
-    tempDoc.activeLayer.name = images[i].file.name; // rename layer
-    tempDoc.activeLayer.duplicate(doc); // Duplicate image into main document
-    images[i].layer = doc.activeLayer; // Store layer in ImageObject
-    if (images[i].isMM && bottomMM === null) {
-        bottomMM = doc.activeLayer; // Store the layer containing the first MM
-    }
-    tempDoc.close(SaveOptions.DONOTSAVECHANGES); // Close temp doc
-}
-
-// Group all pMap layers
-var pMapsGroup = doc.layerSets.add();
-pMapsGroup.move(bottomMM, ElementPlacement.PLACEAFTER); // Move below the MMs
-pMapsGroup.name = "pMaps";
-for (var i = 0; i < pMaps.length; i++) {
-    pMaps[i].layer.move(pMapsGroup, ElementPlacement.INSIDE);
-}
-
-var firstAcquisitionLayer1 = null
-var secondAcquisitionLayer1 = null
-
-// Link layers from the same acquisition
-for (var i = 0; i < images.length; i++) {
-    if (images[i].isFirstAcquisition) {
-        if (firstAcquisitionLayer1 === null) {
-            firstAcquisitionLayer1 = images[i].layer;
-        } else {
-            firstAcquisitionLayer1.link(images[i].layer);
+    
+    // Sort function that puts the first acquisition before the second
+    var acquisitionSort = function(a, b) {
+        // Sort alphabetically if from the same acquisition
+        if (a.isFirstAcquisition === b.isFirstAcquisition) {
+            return a.file.name.localeCompare(b.file.name);
         }
-    } else {
-        if (secondAcquisitionLayer1 === null) {
-            secondAcquisitionLayer1 = images[i].layer;
+        return a.isFirstAcquisition ? -1 : 1;
+    };
+
+    masks.sort(acquisitionSort);
+    MMs.sort(acquisitionSort);
+    pMaps.sort(acquisitionSort);
+    averages.sort(acquisitionSort);
+
+    // Re-order images as: averages, pMaps, MMs, masks.
+    // Note: Photoshop displays this order inverted in the Layers panel.
+    var ordered = averages.concat(pMaps, MMs, masks);
+
+    return {
+        ordered: ordered,
+        masks: masks,
+        MMs: MMs,
+        pMaps: pMaps,
+        averages: averages
+    };
+}
+
+
+/**
+ * Configures a new Photoshop document to match the images. Ensures RGB color 
+ * mode and 8-bit depth.
+ * 
+ * @param {ImageObject[]} images
+ * @returns {Document} The new Photoshop document.
+ */
+function configureDoc(images) {
+    // Create a new document that matches the dimensions of the images
+    var doc = app.open(images[0].file);
+    doc.activeLayer.name = images[0].file.name;
+    images[0].layer = doc.activeLayer;
+
+    // Change color mode to RGB
+    if (doc.mode != DocumentMode.RGB) {
+        doc.changeMode(ChangeMode.RGB);
+    }
+
+    // Change bit depth to 8
+    if (doc.bitsPerChannel != BitsPerChannelType.EIGHT) {
+        doc.bitsPerChannel = BitsPerChannelType.EIGHT;
+    }
+
+    return doc;
+}
+
+
+/**
+ * Adds each image as a layer to a document.
+ * 
+ * @param {Document} doc - The target document.
+ * @param {ImageObject[]} images - Array of ImageObjects.
+ */
+function addLayers(doc, images) {
+    // Loop over files and add each as a layer
+    for (var i = 1; i < images.length; i++) {
+        var tempDoc = app.open(images[i].file); // Open image temporarily
+        tempDoc.activeLayer.name = images[i].file.name; // rename layer
+        tempDoc.activeLayer.duplicate(doc); // Copy image into the document
+        images[i].layer = doc.activeLayer; // Store layer in ImageObject
+        tempDoc.close(SaveOptions.DONOTSAVECHANGES); // Close temp doc
+    }
+}
+
+
+/**
+ * Groups pMap layers and places them after the bottom MM layer.
+ * 
+ * @param {Document} doc - The Photoshop document.
+ * @param {ImageObject[]} images - All ImageObjects.
+ * @param {ImageObject[]} pMaps - Array of pMap ImageObjects.
+ * @returns {LayerSet} The created pMaps group.
+ */
+function groupPMaps(doc, images, pMaps) {
+    // Find the bottom MM layer to place pMaps after
+    var bottomMM = null;
+    for (var i = 0; i < images.length; i++) {
+        if (images[i].isMM) {
+            bottomMM = images[i].layer;
+            break;
+        }
+    }
+
+    // Group pMaps
+    var pMapsGroup = doc.layerSets.add();
+    pMapsGroup.name = "pMaps";
+    for (var i = 0; i < pMaps.length; i++) {
+        pMaps[i].layer.move(pMapsGroup, ElementPlacement.INSIDE);
+    }
+
+    // Move below the MMs
+    pMapsGroup.move(bottomMM, ElementPlacement.PLACEAFTER);
+
+    return pMapsGroup;
+}
+
+
+/**
+ * Links layers belonging to the same acquisition.
+ * 
+ * @param {ImageObject[]} images - The array of ImageObjects.
+ */
+function linkAcquisitions(images) {
+    var firstAcquisitionLayer1 = null;
+    var secondAcquisitionLayer1 = null;
+
+    // Link layers from the same acquisition
+    for (var i = 0; i < images.length; i++) {
+        if (images[i].isFirstAcquisition) {
+            if (firstAcquisitionLayer1 === null) {
+                firstAcquisitionLayer1 = images[i].layer;
+            } else {
+                firstAcquisitionLayer1.link(images[i].layer);
+            }
         } else {
-            secondAcquisitionLayer1.link(images[i].layer);
+            if (secondAcquisitionLayer1 === null) {
+                secondAcquisitionLayer1 = images[i].layer;
+            } else {
+                secondAcquisitionLayer1.link(images[i].layer);
+            }
         }
     }
 }
 
-// Function that selects all visible black pixels
+
+/**
+ * Selects all visible black pixels in the active document.
+ */
 function selectBlackColorRange() {
     // Main descriptor
     var desc = new ActionDescriptor();
@@ -188,32 +296,45 @@ function selectBlackColorRange() {
     executeAction(charIDToTypeID("ClrR"), desc, DialogModes.NO);
 }
 
-// Function that deletes all black pixels from a given layer
-function deleteBlackPixelsFromLayer(layer) {
-    doc.activeLayer = layer;
 
-    // Hide other layers to avoid deleting unwanted pixels
+/**
+ * Deletes all black pixels from a given layer.
+ * 
+ * @param {Document} doc - The Photoshop document.
+ * @param {ArtLayer} layer - The layer to edit.
+ */
+function deleteBlackPixelsFromLayer(doc, layer) {
+    doc.activeLayer = layer;
+    doc.activeLayer.visible = true;
+
+    // Hide other layers to avoid altering unwanted pixels
     for (var i = 0; i < doc.layers.length; i++) {
         if (doc.layers[i] !== layer) {
             doc.layers[i].visible = false;
         }
     }
     
+    // Select and delete all black pixels
     selectBlackColorRange();
-    doc.selection.clear(); // Remove black pixels
-    doc.selection.deselect(); // Deselect
+    doc.selection.clear();
+    doc.selection.deselect();
     
-    // Restore original visibility of all layers
+    // Restore visibility of all layers
     for (var i = 0; i < doc.layers.length; i++) {
         doc.layers[i].visible = true;
     }
 }
 
-// Delete black part of masks and invert
-for (var i = 0; i < masks.length; i++) {
-    deleteBlackPixelsFromLayer(masks[i].layer);
-    masks[i].layer.invert();
-}
 
-// Flip canvas
-doc.flipCanvas(Direction.VERTICAL);
+/**
+ * Deletes black pixels and inverts each mask layer in the provided array.
+ *
+ * @param {Document} doc - The Photoshop document.
+ * @param {ImageObject[]} masks - Array of mask ImageObjects.
+ */
+function editMasks(doc, masks) {
+    for (var i = 0; i < masks.length; i++) {
+        deleteBlackPixelsFromLayer(doc, masks[i].layer);
+        masks[i].layer.invert();
+    }
+}

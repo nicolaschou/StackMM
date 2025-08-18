@@ -1,5 +1,5 @@
 # StackMM Photoshop Script
-**Latest Version: v1.1 (08/17/2025)**
+**Latest Version: v1.1 (08/18/2025)**
 
 ## What the Script Does
 - Imports images as layers into a single Photoshop document.  
@@ -35,7 +35,6 @@
 - The two acquisitions ***must be aligned manually*** after the script is run (layers are already linked by acquisition)
 
 ## Version History
-- **v1.1** (8/17/2025)  
-    - Added ability to select files in multiple batches for each acquisition.
-
+- **v1.1** (8/18/2025)  
+  - Added ability to select files in multiple batches for each acquisition.
 
