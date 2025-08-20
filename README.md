@@ -19,22 +19,25 @@
 
 ## Usage
 1. In Photoshop, go to **File → Scripts → StackMM**.  
-2. When prompted, select image files from the **first acquisition** and click **Done**.  
+2. When prompted, click **Add Files** and select image files from the **first acquisition**. Click **Done** once all files are selected for the given acquisition.
+    - To remove any unwanted files, select the file and click **Remove**.
+    - To end the program, click **Cancel Script**.
 3. Repeat the process for the **second acquisition**.  
-    - The file dialog will indicate which acquisition is being loaded.  
+    - The file dialog will indicate which acquisition is being loaded.
 4. Wait for all layers to load.  
 5. **Manually align the two acquisitions** (layers are already linked by acquisition).  
 6. Save the project as a `.psd` file with appropriate naming conventions.  
 
 ## Notes
 - The script only works for datasets with **two acquisitions**.  
-- Masks ***must contain “mask”*** in their file name (case insensitive)
-- pMaps ***must contain “pmap”*** in their file name (case insensitive)
-- Average images ***must contain “average”*** in their file name (case insensitive)
-- Files that ***do not contain “mask”, “pmap”, or “average”*** in their name are treated as MMs
-- The two acquisitions ***must be aligned manually*** after the script is run (layers are already linked by acquisition)
+- Masks ***must contain “mask”*** in their file name (case insensitive).
+- pMaps ***must contain “pmap”*** in their file name (case insensitive).
+- Average images ***must contain “average”*** in their file name (case insensitive).
+- Files that ***do not contain “mask”, “pmap”, or “average”*** in their name are treated as MMs.
+- The two acquisitions ***must be aligned manually*** after the script is run (layers are already linked by acquisition).
 
 ## Version History
 - **v1.1** (8/18/2025)  
   - Added ability to select files in multiple batches for each acquisition.
-
+- **v1.2** (8/19/2025)
+  - Added ability to remove selected files and increased error handling/messaging.

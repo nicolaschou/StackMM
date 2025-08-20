@@ -14,23 +14,63 @@
 
 
 /**
- * Main entry point. Collects images, reorders them, configures document, adds 
+ * Main entry point. Collects images, orders them, configures document, adds 
  * layers, groups pMaps, links acquisitions, edits masks, and flips canvas.
  */
 (function main() {
     // Set units to pixels
     app.preferences.rulerUnits = Units.PIXELS;
 
+    // Collect images for the first and second acquisitions
     var first = collectImages(true);
+    if (first === null) {
+        alert("Cancelled. Exiting script.");
+        return;
+    }
     var second = collectImages(false);
+    if (second === null) {
+        alert("Cancelled. Exiting script.");
+        return;
+    }
+
+    // Order and retrieve images in specific categories
     var images = first.concat(second);
-    var parts = reorderImages(images);
+    var parts = orderImages(images);
     images = parts.ordered;
     var masks = parts.masks;
     var MMs = parts.MMs;
     var pMaps = parts.pMaps;
     var averages = parts.averages;
+
+    var categories = {
+        "masks": masks,
+        "MMs": MMs,
+        "pMaps": pMaps,
+        "average images": averages
+    };
+
+    // Scan for each category
+    var missing = [];
+    for (var key in categories) {
+        if (!categories[key] || categories[key].length === 0) {
+            missing.push(key)
+        }
+    }
+    
+    // Alert user if any categories are not detected
+    if (missing.length > 0) {
+        var message = "Warning: image categories not detected:\n\n";
+        for (var i = 0; i < missing.length; i++)  {
+            message = message + "  - " + missing[i] + "\n";
+        }
+        message = message + "\nCheck filenames if this was unintended."
+        alert(message);
+    }
+    
+    // Create the Photoshop document
     var doc = configureDoc(images);
+
+    // Add images as layers, group pMaps, link acquisitions, and edit masks
     addLayers(doc, images);
     groupPMaps(doc, images, pMaps);
     linkAcquisitions(images);
@@ -64,10 +104,43 @@ function ImageObject(file, isFirstAcquisition) {
 
 
 /**
- * Opens a dialog to collect image files for a given acquisition.
+ * Determines whether a filename corresponds to a supported image type.
+ * Supported extensions are: `.jpg`, `.jpeg`, `.png`, `.tif`, `.tiff`
+ * (case-insensitive).
+ *
+ * @param {string} filename - The name of the file to check.
+ * @returns {boolean} True if the filename has a valid image extension,
+ *                    false otherwise.
+ */
+function isImage(filename) {
+    var validExts = [".jpg", ".jpeg", ".png", ".tif", ".tiff"];
+    var lower = filename.toLowerCase();
+
+    // Find the last "." in the filename
+    var dot = lower.lastIndexOf(".");
+    if (dot === -1) {
+        return false; // no extension
+    }
+
+    // Check for image extension
+    var ext = lower.substring(dot);
+    for (var i = 0; i < validExts.length; i++) {
+        if (ext === validExts[i]) {
+            return true;
+        }
+    }
+    return false;
+}
+
+
+/**
+ * Opens a dialog to collect image files for a given acquisition. The dialog
+ * contains buttons for adding files, removing files, cancelling the script,
+ * and ending file selection.
  * 
  * @param {boolean} isFirst - True if collecting for the first acquisition.
- * @returns {ImageObject[]} Array of selected images as ImageObjects.
+ * @returns {ImageObject[]|null} Array of selected `ImageObject`s, or null if
+ *                               the user cancels.
  */
 function collectImages(isFirst) {
     // Create a file opening window
@@ -86,40 +159,67 @@ function collectImages(isFirst) {
 
     // Empty array to hold the selected images as ImageObjects
     var images = [];
+    var cancelled = false;
 
     // Add files button
     var addButton = buttonGroup.add("button", undefined, "Add Files");
-    addButton.onClick = function () {
-        var files = File.openDialog(
-            promptText,
-            "Images:*.jpg;*.jpeg;*.png;*.tif;*.tiff;" +
-            "*.JPG;*.JPEG;*.PNG;*.TIF;*.TIFF",
-            true
-        );
+    addButton.onClick = function() {
+        var files = File.openDialog(promptText, "", true);
+        
         // Store imageObjects and update the fileListBox
-        if (files != null) {
+        if (files !== null) {
             for (var i = 0; i < files.length; i++) {
-                var imageObject = new ImageObject(files[i], isFirst);
-                images.push(imageObject);
-                fileListBox.add("item", files[i].name);
+                if (isImage(files[i].name)) {
+                    var imageObject = new ImageObject(files[i], isFirst);
+                    images.push(imageObject);
+                    fileListBox.add("item", files[i].name);
+                } else {
+                    alert("Skipping non-image file: " + files[i].name);
+                    continue;
+                }
             }
         } 
     };
+
+    // Remove image button
+    var removeButton = buttonGroup.add("button", undefined, "Remove");
+    removeButton.onClick = function() {
+        var selected = fileListBox.selection;
+        if (!selected) {
+            alert("No file selected to remove.");
+            return;
+        }
+
+        // Remove from images array and listbox
+        images.splice(selected.index, 1);
+        fileListBox.remove(selected.index);
+    };
+
+    // Cancel script button
+    var cancelButton = buttonGroup.add("button", undefined, "Cancel Script");
+    cancelButton.onClick = function() {
+        cancelled = true;
+        dlg.close();
+    }
     
     // Done button
     var doneButton = buttonGroup.add("button", undefined, "Done", 
                                      { name: "ok" });
-    doneButton.onClick = function () {
+    doneButton.onClick = function() {
+        if (images.length === 0) {
+            alert("No images selected. Please add at least one file.");
+            return; // keep dialog open
+        }
         dlg.close();
     };
 
     dlg.show();
-    return images;
+    return cancelled ? null : images;
 }
 
 
 /**
- * Reorders images into categories (masks, MMs, pMaps, averages). Within each
+ * Orders images by category (masks, MMs, pMaps, averages). Within each
  * category, images are sorted by acquisition (the first before the second).
  * 
  * @param {ImageObject[]} images - The list of ImageObjects.
@@ -131,8 +231,8 @@ function collectImages(isFirst) {
  *   averages: ImageObject[]
  * }} Arrays of ImageObjects sorted by category
  */
-function reorderImages(images) {
-    // Separate images for reordering
+function orderImages(images) {
+    // Separate images for ordering
     var masks = [], MMs = [], pMaps = [], averages = [];
     for (var i = 0; i < images.length; i++) {
         var im = images[i];
@@ -156,7 +256,7 @@ function reorderImages(images) {
     pMaps.sort(acquisitionSort);
     averages.sort(acquisitionSort);
 
-    // Re-order images as: averages, pMaps, MMs, masks.
+    // Order images as: averages, pMaps, MMs, masks.
     // Note: Photoshop displays this order inverted in the Layers panel.
     var ordered = averages.concat(pMaps, MMs, masks);
 
@@ -184,12 +284,12 @@ function configureDoc(images) {
     images[0].layer = doc.activeLayer;
 
     // Change color mode to RGB
-    if (doc.mode != DocumentMode.RGB) {
+    if (doc.mode !== DocumentMode.RGB) {
         doc.changeMode(ChangeMode.RGB);
     }
 
     // Change bit depth to 8
-    if (doc.bitsPerChannel != BitsPerChannelType.EIGHT) {
+    if (doc.bitsPerChannel !== BitsPerChannelType.EIGHT) {
         doc.bitsPerChannel = BitsPerChannelType.EIGHT;
     }
 
@@ -198,7 +298,7 @@ function configureDoc(images) {
 
 
 /**
- * Adds each image as a layer to a document.
+ * Adds images as layers to a document.
  * 
  * @param {Document} doc - The target document.
  * @param {ImageObject[]} images - Array of ImageObjects.
@@ -206,11 +306,11 @@ function configureDoc(images) {
 function addLayers(doc, images) {
     // Loop over files and add each as a layer
     for (var i = 1; i < images.length; i++) {
-        var tempDoc = app.open(images[i].file); // Open image temporarily
+        var tempDoc = app.open(images[i].file); // open image temporarily
         tempDoc.activeLayer.name = images[i].file.name; // rename layer
-        tempDoc.activeLayer.duplicate(doc); // Copy image into the document
-        images[i].layer = doc.activeLayer; // Store layer in ImageObject
-        tempDoc.close(SaveOptions.DONOTSAVECHANGES); // Close temp doc
+        tempDoc.activeLayer.duplicate(doc); // copy image into the document
+        images[i].layer = doc.activeLayer; // store layer in ImageObject
+        tempDoc.close(SaveOptions.DONOTSAVECHANGES); // close temp doc
     }
 }
 
@@ -241,7 +341,9 @@ function groupPMaps(doc, images, pMaps) {
     }
 
     // Move below the MMs
-    pMapsGroup.move(bottomMM, ElementPlacement.PLACEAFTER);
+    if (bottomMM) {
+        pMapsGroup.move(bottomMM, ElementPlacement.PLACEAFTER);
+    }
 
     return pMapsGroup;
 }
