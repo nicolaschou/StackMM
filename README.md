@@ -1,5 +1,5 @@
 # StackMM Photoshop Script
-**Latest Version: v1.2 (08/19/2025)**
+**Latest Version: v1.3 (11/9/2025)**
 
 ## What the Script Does
 - Imports images as layers into a single Photoshop document.  
@@ -15,7 +15,6 @@
 
 ## Installation
 1. Move the `StackMM.jsx` file into Photoshop’s Scripts folder: **Applications → Adobe Photoshop 2025 → Presets → Scripts**
-2. Restart Photoshop if it’s already open.
 
 ## Usage
 1. In Photoshop, go to **File → Scripts → StackMM**.  
@@ -41,3 +40,5 @@
   - Added ability to select files in multiple batches for each acquisition.
 - **v1.2** (8/19/2025)
   - Added ability to remove selected files and increased error handling/messaging.
+- **v1.3** (11/9/2025)
+  - Added alert that lists how the script categorized the selected images and added document naming to avoid backend Photoshop limitations.

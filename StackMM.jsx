@@ -1,11 +1,9 @@
 /**
- * ========================================
- * File:        StackMM.jsx
- * Description: Script to load and organize Igor images generated with the 
- *              Gilbert Group Macros in Photoshop, sorting by acquisition and 
- *              type with automated mask cleanup.
- * Author:      Nico Chou
- * ========================================
+ * Author: Nico Chou
+ * 
+ * Script to load and organize Igor images generated with the Gilbert Group
+ * Macros in Photoshop, sorting by acquisition and image type with automated
+ * mask cleanup.
  */
 
 
@@ -32,7 +30,7 @@
         alert("Cancelled. Exiting script.");
         return;
     }
-
+    
     // Order and retrieve images in specific categories
     var images = first.concat(second);
     var parts = orderImages(images);
@@ -42,33 +40,11 @@
     var pMaps = parts.pMaps;
     var averages = parts.averages;
 
-    var categories = {
-        "masks": masks,
-        "MMs": MMs,
-        "pMaps": pMaps,
-        "average images": averages
-    };
-
-    // Scan for each category
-    var missing = [];
-    for (var key in categories) {
-        if (!categories[key] || categories[key].length === 0) {
-            missing.push(key)
-        }
-    }
-    
-    // Alert user if any categories are not detected
-    if (missing.length > 0) {
-        var message = "Warning: image categories not detected:\n\n";
-        for (var i = 0; i < missing.length; i++)  {
-            message = message + "  - " + missing[i] + "\n";
-        }
-        message = message + "\nCheck filenames if this was unintended."
-        alert(message);
-    }
+    // Display how images were sorted
+    showSort(masks, MMs, pMaps, averages);
     
     // Create the Photoshop document
-    var doc = configureDoc(images);
+    var doc = configureDoc(images[0]);
 
     // Add images as layers, group pMaps, link acquisitions, and edit masks
     addLayers(doc, images);
@@ -271,17 +247,64 @@ function orderImages(images) {
 
 
 /**
- * Configures a new Photoshop document to match the images. Ensures RGB color 
+ * Displays a sorted list of image filenames for each category
+ * (masks, MMs, pMaps, and averages).
+ *
+ * @param {ImageObject[]} masks - Array of mask image objects.
+ * @param {ImageObject[]} MMs - Array of Myriad Map image objects.
+ * @param {ImageObject[]} pMaps - Array of pMap image objects.
+ * @param {ImageObject[]} averages - Array of average image objects.
+ */
+function showSort(masks, MMs, pMaps, averages) {
+    var sMasks = "";
+    for (var i = 0; i < masks.length; i++) {
+        sMasks += (masks[i].file.name + "\n");
+    }
+
+    var sMMs = "";
+    for (var i = 0; i < MMs.length; i++) {
+        sMMs += (MMs[i].file.name + "\n");
+    }
+
+    var spMaps = "";
+    for (var i = 0; i < pMaps.length; i++) {
+        spMaps += (pMaps[i].file.name + "\n");
+    }
+
+    var sAverages = "";
+    for (var i = 0; i < averages.length; i++) {
+        sAverages += (averages[i].file.name + "\n");
+    }
+
+    var outputString =
+    "SORTED FILES:\n" +
+    "masks:\n" + sMasks + "\n" +
+    "MMs:\n" + sMMs + "\n" +
+    "pMaps:\n" + spMaps + "\n" +
+    "averages:\n" + sAverages;
+
+    alert(outputString);
+}
+
+
+/**
+ * Configures a new Photoshop document to match an image. Ensures RGB color 
  * mode and 8-bit depth.
  * 
- * @param {ImageObject[]} images
+ * @param {ImageObject} image The image to configure to.
  * @returns {Document} The new Photoshop document.
  */
-function configureDoc(images) {
+function configureDoc(image) {
     // Create a new document that matches the dimensions of the images
-    var doc = app.open(images[0].file);
-    doc.activeLayer.name = images[0].file.name;
-    images[0].layer = doc.activeLayer;
+    var doc = app.open(image.file);
+    
+    // Generate a unique name to avoid lookup collisions
+    var name = "STACK_" + (new Date().getTime());
+    doc = doc.duplicate(name, false);
+
+    // Rename and store the new layer
+    doc.activeLayer.name = image.file.name;
+    image.layer = doc.activeLayer;
 
     // Change color mode to RGB
     if (doc.mode !== DocumentMode.RGB) {
@@ -306,11 +329,23 @@ function configureDoc(images) {
 function addLayers(doc, images) {
     // Loop over files and add each as a layer
     for (var i = 1; i < images.length; i++) {
-        var tempDoc = app.open(images[i].file); // open image temporarily
-        tempDoc.activeLayer.name = images[i].file.name; // rename layer
-        tempDoc.activeLayer.duplicate(doc); // copy image into the document
-        images[i].layer = doc.activeLayer; // store layer in ImageObject
-        tempDoc.close(SaveOptions.DONOTSAVECHANGES); // close temp doc
+        // Open image in a temporary document
+        var tempDoc = app.open(images[i].file);
+
+        // Copy the new layer
+        tempDoc.selection.selectAll();
+        tempDoc.selection.copy();
+
+        // Close the temporary document
+        tempDoc.close(SaveOptions.DONOTSAVECHANGES);
+
+        // Paste into the main document
+        app.activeDocument = doc;
+        doc.paste();
+
+        // Rename and store the new layer
+        doc.activeLayer.name = images[i].file.name;
+        images[i].layer = doc.activeLayer;
     }
 }
 
